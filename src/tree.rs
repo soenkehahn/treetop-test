@@ -12,46 +12,51 @@ pub(crate) trait Node<Id> {
 #[derive(Debug)]
 pub(crate) struct Tree<Id, Node> {
     nodes: HashMap<Id, Node>,
-    children: HashMap<Id, Vec<Node>>,
+    children: HashMap<Id, Vec<Id>>,
+    roots: Vec<Id>,
 }
 
 impl<Id, Node> Tree<Id, Node>
 where
-    Id: Eq + std::hash::Hash + Ord,
+    Id: Eq + std::hash::Hash + Ord + Clone,
     Node: crate::tree::Node<Id> + Display + Clone,
 {
     pub(crate) fn new(nodes: impl Iterator<Item = Node>) -> Self {
         let mut map = HashMap::new();
         let mut children = HashMap::new();
+        let mut roots = Vec::new();
         for node in nodes {
             map.insert(node.id(), node.clone());
             if let Some(parent) = node.parent() {
-                children.entry(parent).or_insert(Vec::new()).push(node);
+                children.entry(parent).or_insert(Vec::new()).push(node.id());
+            } else {
+                roots.push(node.id());
             }
         }
         for (_, children) in children.iter_mut() {
-            children.sort_by_key(|a| a.id());
+            children.sort();
         }
+        roots.sort();
         Tree {
             nodes: map,
             children,
+            roots,
         }
     }
 
-    fn root(&self) -> &Node {
-        self.nodes
-            .get(&Node::root())
-            .ok_or_else(|| todo!())
-            .unwrap()
-    }
-
-    fn children(&self, node: &Node) -> Vec<Node> {
-        self.children.get(&node.id()).cloned().unwrap_or(Vec::new())
+    fn children(&self, node: &Node) -> &[Id] {
+        self.children
+            .get(&node.id())
+            .map(|x| x.as_slice())
+            .unwrap_or(&[])
     }
 
     pub(crate) fn format(&self) -> String {
         let mut acc = "".to_string();
-        self.format_helper(self.root(), true, true, &mut Vec::new(), &mut acc);
+        for root in self.roots.iter() {
+            let node = self.nodes.get(root).unwrap();
+            self.format_helper(node, true, true, &mut Vec::new(), &mut acc);
+        }
         acc.to_string()
     }
 
@@ -79,7 +84,7 @@ where
                 prefixes.push(if is_last { "  " } else { "│ " });
             }
             let is_last = i == children.len() - 1;
-            self.format_helper(child, false, is_last, prefixes, acc);
+            self.format_helper(&self.nodes[child], false, is_last, prefixes, acc);
             prefixes.pop();
         }
     }
@@ -221,6 +226,36 @@ mod test {
               ├─┬ foo
               │ └── bar
               └── baz
+            "
+            .unindent()
+        );
+    }
+
+    #[test]
+    fn f_multiple_roots() {
+        let tree = Tree::new(
+            vec![TestNode::new(1, "foo", None), TestNode::new(2, "bar", None)].into_iter(),
+        );
+        assert_eq!(
+            tree.format(),
+            "
+              foo
+              bar
+            "
+            .unindent()
+        );
+    }
+
+    #[test]
+    fn f_sorts_roots_by_id() {
+        let tree = Tree::new(
+            vec![TestNode::new(2, "foo", None), TestNode::new(1, "bar", None)].into_iter(),
+        );
+        assert_eq!(
+            tree.format(),
+            "
+              bar
+              foo
             "
             .unindent()
         );
