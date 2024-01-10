@@ -6,13 +6,13 @@ use sysinfo::Pid;
 #[derive(Clone, Debug)]
 pub(crate) struct Process {
     pid: Pid,
-    name: String,
+    pub(crate) name: String,
     parent: Option<Pid>,
 }
 
 impl fmt::Display for Process {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} : {}", self.pid, self.name,)
+        write!(f, "{} - {}", self.pid, self.name)
     }
 }
 
