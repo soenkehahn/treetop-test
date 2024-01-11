@@ -7,6 +7,8 @@ use std::fmt::Display;
 pub(crate) trait Node<Id> {
     fn id(&self) -> Id;
 
+    fn format_id(&self) -> String;
+
     fn parent(&self) -> Option<Id>;
 }
 
@@ -100,6 +102,7 @@ where
         if !included.contains(&node.id()) {
             return;
         }
+        *acc += &format!("{} ┃ ", node.format_id());
         for prefix in prefixes.iter() {
             *acc += prefix;
         }
@@ -108,8 +111,7 @@ where
             *acc += if is_last { "└─" } else { "├─" };
             *acc += if has_children { "┬ " } else { "─ " };
         }
-        *acc += &node.to_string();
-        *acc += "\n";
+        *acc += &format!("{}\n", node);
         let children: Vec<Id> = self
             .children(node.id())
             .iter()
@@ -199,13 +201,27 @@ mod test {
 
     impl Display for TestNode {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "{}", self.id)
+            write!(
+                f,
+                "{}",
+                match self.id {
+                    1 => "one",
+                    2 => "two",
+                    3 => "three",
+                    4 => "four",
+                    n => panic!("TestNode out of range: {}", n),
+                }
+            )
         }
     }
 
     impl Node<u8> for TestNode {
         fn id(&self) -> u8 {
             self.id
+        }
+
+        fn format_id(&self) -> String {
+            self.id.to_string()
         }
 
         fn parent(&self) -> Option<u8> {
@@ -225,7 +241,7 @@ mod test {
         assert_eq!(
             tree.format(|_| true),
             "
-              1
+                1 ┃ one
             "
             .unindent()
         );
@@ -237,8 +253,8 @@ mod test {
         assert_eq!(
             tree.format(|_| true),
             "
-              1
-              └── 2
+                1 ┃ one
+                2 ┃ └── two
             "
             .unindent()
         );
@@ -258,10 +274,10 @@ mod test {
         assert_eq!(
             tree.format(|_| true),
             "
-              1
-              ├── 2
-              ├── 3
-              └── 4
+                1 ┃ one
+                2 ┃ ├── two
+                3 ┃ ├── three
+                4 ┃ └── four
             "
             .unindent()
         );
@@ -280,9 +296,9 @@ mod test {
         assert_eq!(
             tree.format(|_| true),
             "
-              1
-              └─┬ 2
-                └── 3
+                1 ┃ one
+                2 ┃ └─┬ two
+                3 ┃   └── three
             "
             .unindent()
         );
@@ -302,10 +318,10 @@ mod test {
         assert_eq!(
             tree.format(|_| true),
             "
-              1
-              ├─┬ 2
-              │ └── 3
-              └── 4
+              1 ┃ one
+              2 ┃ ├─┬ two
+              3 ┃ │ └── three
+              4 ┃ └── four
             "
             .unindent()
         );
@@ -317,27 +333,27 @@ mod test {
         assert_eq!(
             tree.format(|_| true),
             "
-              1
-              2
+                1 ┃ one
+                2 ┃ two
             "
             .unindent()
         );
     }
 
     #[test]
-    fn f_sorts_roots_by_id() {
+    fn g_sorts_roots_by_id() {
         let tree = Tree::new(vec![TestNode::new(2, None), TestNode::new(1, None)].into_iter());
         assert_eq!(
             tree.format(|_| true),
             "
-              1
-              2
+                1 ┃ one
+                2 ┃ two
             "
             .unindent()
         );
     }
 
-    mod filtering {
+    mod h_filtering {
         use super::*;
         use pretty_assertions::assert_eq;
 
@@ -347,7 +363,7 @@ mod test {
             assert_eq!(
                 tree.format(|node| node.id == 2),
                 "
-                  2
+                    2 ┃ two
                 "
                 .unindent()
             );
@@ -366,8 +382,8 @@ mod test {
             assert_eq!(
                 tree.format(|node| node.id == 1),
                 "
-                  1
-                  └── 2
+                    1 ┃ one
+                    2 ┃ └── two
                 "
                 .unindent()
             );
@@ -386,8 +402,8 @@ mod test {
             assert_eq!(
                 tree.format(|node| node.id == 2),
                 "
-                  1
-                  └── 2
+                    1 ┃ one
+                    2 ┃ └── two
                 "
                 .unindent()
             );
@@ -406,9 +422,9 @@ mod test {
             assert_eq!(
                 tree.format(|node| node.id == 3),
                 "
-                  1
-                  └─┬ 2
-                    └── 3
+                    1 ┃ one
+                    2 ┃ └─┬ two
+                    3 ┃   └── three
                 "
                 .unindent()
             );
@@ -428,9 +444,9 @@ mod test {
             assert_eq!(
                 tree.format(|node| node.id == 2),
                 "
-                  1
-                  └─┬ 2
-                    └── 3
+                    1 ┃ one
+                    2 ┃ └─┬ two
+                    3 ┃   └── three
                 "
                 .unindent()
             );
@@ -450,9 +466,9 @@ mod test {
             assert_eq!(
                 tree.format(|node| node.id == 2),
                 "
-                  1
-                  └─┬ 2
-                    └── 3
+                    1 ┃ one
+                    2 ┃ └─┬ two
+                    3 ┃   └── three
                 "
                 .unindent()
             );

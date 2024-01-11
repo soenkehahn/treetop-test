@@ -12,13 +12,17 @@ pub(crate) struct Process {
 
 impl fmt::Display for Process {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} - {}", self.pid, self.name)
+        write!(f, "{}", self.name)
     }
 }
 
 impl Node<Pid> for Process {
     fn id(&self) -> Pid {
         self.pid
+    }
+
+    fn format_id(&self) -> String {
+        format!("{:>8}", self.pid.as_u32())
     }
 
     fn parent(&self) -> Option<Pid> {
