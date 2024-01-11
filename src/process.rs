@@ -17,10 +17,6 @@ impl fmt::Display for Process {
 }
 
 impl Node<Pid> for Process {
-    fn root() -> Pid {
-        Pid::from_u32(1)
-    }
-
     fn id(&self) -> Pid {
         self.pid
     }

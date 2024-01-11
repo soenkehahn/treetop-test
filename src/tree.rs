@@ -5,8 +5,6 @@ use std::fmt::Debug;
 use std::fmt::Display;
 
 pub(crate) trait Node<Id> {
-    fn root() -> Id;
-
     fn id(&self) -> Id;
 
     fn parent(&self) -> Option<Id>;
@@ -206,10 +204,6 @@ mod test {
     }
 
     impl Node<u8> for TestNode {
-        fn root() -> u8 {
-            1
-        }
-
         fn id(&self) -> u8 {
             self.id
         }
