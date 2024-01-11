@@ -115,8 +115,8 @@ where
         let children: Vec<Id> = self
             .children(node.id())
             .iter()
+            .filter(|&child| included.contains(child))
             .cloned()
-            .filter(|child| included.contains(child))
             .collect();
         for (i, child) in children.iter().enumerate() {
             if !is_root {
