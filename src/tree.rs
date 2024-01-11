@@ -22,19 +22,19 @@ pub(crate) struct Tree<Id, Node> {
 impl<Id, Node> Tree<Id, Node>
 where
     Id: Eq + std::hash::Hash + Ord + Clone,
-    Node: crate::tree::Node<Id> + Display + Clone,
+    Node: crate::tree::Node<Id> + Display,
 {
     pub(crate) fn new(nodes: impl Iterator<Item = Node>) -> Self {
         let mut map = HashMap::new();
         let mut children = HashMap::new();
         let mut roots = Vec::new();
         for node in nodes {
-            map.insert(node.id(), node.clone());
             if let Some(parent) = node.parent() {
                 children.entry(parent).or_insert(Vec::new()).push(node.id());
             } else {
                 roots.push(node.id());
             }
+            map.insert(node.id(), node);
         }
         for (_, children) in children.iter_mut() {
             children.sort();
@@ -140,7 +140,7 @@ impl<'a, Id, Node> TransitiveParents<'a, Id, Node> {
 impl<'a, Id, Node> Iterator for TransitiveParents<'a, Id, Node>
 where
     Id: Eq + Ord + std::hash::Hash + Clone,
-    Node: crate::tree::Node<Id> + Display + Clone,
+    Node: crate::tree::Node<Id> + Display,
 {
     type Item = Id;
 
@@ -160,7 +160,7 @@ struct TransitiveChildren<'a, Id, Node>(Vec<Id>, &'a Tree<Id, Node>);
 impl<'a, Id, Node> TransitiveChildren<'a, Id, Node>
 where
     Id: Eq + Ord + std::hash::Hash + Clone,
-    Node: crate::tree::Node<Id> + Display + Clone,
+    Node: crate::tree::Node<Id> + Display,
 {
     fn new(tree: &'a Tree<Id, Node>, id: Id) -> Self {
         TransitiveChildren(tree.children(id).to_vec(), tree)
@@ -170,7 +170,7 @@ where
 impl<'a, Id, Node> Iterator for TransitiveChildren<'a, Id, Node>
 where
     Id: Eq + Ord + std::hash::Hash + Clone,
-    Node: crate::tree::Node<Id> + Display + Clone,
+    Node: crate::tree::Node<Id> + Display,
 {
     type Item = Id;
 
@@ -194,7 +194,6 @@ mod test {
     use pretty_assertions::assert_eq;
     use unindent::Unindent;
 
-    #[derive(Clone)]
     struct TestNode {
         id: u8,
         parent: Option<u8>,

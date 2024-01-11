@@ -3,7 +3,7 @@ use crate::tree::Tree;
 use std::fmt;
 use sysinfo::Pid;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub(crate) struct Process {
     pid: Pid,
     pub(crate) name: String,
