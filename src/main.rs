@@ -4,7 +4,6 @@ use std::error::Error;
 use std::io::stdout;
 use std::io::Write;
 use sysinfo::System;
-use sysinfo::ThreadKind;
 
 mod process;
 mod tree;
@@ -19,7 +18,7 @@ fn main() -> R<()> {
             system
                 .processes()
                 .values()
-                .filter(|process| process.thread_kind() != Some(ThreadKind::Userland)),
+                .filter(|process| process.thread_kind().is_none()),
         )
         .format(|p| p.name.contains(pattern.as_str()))
         .as_bytes(),
