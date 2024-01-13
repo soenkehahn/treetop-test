@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -7,9 +8,11 @@ use std::fmt::Display;
 pub(crate) trait Node<Id> {
     fn id(&self) -> Id;
 
-    fn format_id(&self) -> String;
+    fn format_table(&self) -> String;
 
     fn parent(&self) -> Option<Id>;
+
+    fn cmp(&self, other: &Self) -> Ordering;
 }
 
 #[derive(Debug)]
@@ -36,10 +39,13 @@ where
             }
             map.insert(node.id(), node);
         }
+        let sort_ids = |ids: &mut Vec<Id>| {
+            ids.sort_by(|a, b| map.get(a).unwrap().cmp(map.get(b).unwrap()));
+        };
         for (_, children) in children.iter_mut() {
-            children.sort();
+            sort_ids(children);
         }
-        roots.sort();
+        sort_ids(&mut roots);
         Tree {
             nodes: map,
             children,
@@ -62,7 +68,6 @@ where
     pub(crate) fn format<F>(&self, filter: F) -> String
     where
         F: Fn(&Node) -> bool,
-        Id: Debug,
     {
         let included = {
             let mut queue: BTreeSet<Id> = self.nodes.keys().cloned().collect();
@@ -102,7 +107,7 @@ where
         if !included.contains(&node.id()) {
             return;
         }
-        *acc += &format!("{} ┃ ", node.format_id());
+        *acc += &format!("{} ┃ ", node.format_table());
         for prefix in prefixes.iter() {
             *acc += prefix;
         }
@@ -220,12 +225,16 @@ mod test {
             self.id
         }
 
-        fn format_id(&self) -> String {
+        fn format_table(&self) -> String {
             self.id.to_string()
         }
 
         fn parent(&self) -> Option<u8> {
             self.parent
+        }
+
+        fn cmp(&self, other: &Self) -> Ordering {
+            self.id.cmp(&other.id)
         }
     }
 

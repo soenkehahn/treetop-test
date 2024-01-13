@@ -100,14 +100,19 @@ mod app {
     pub(crate) fn run_ui<T: App>(mut app: T) -> R<()> {
         stdout().execute(EnterAlternateScreen)?;
         enable_raw_mode()?;
+        std::panic::set_hook(Box::new(|_panic_info| {
+            crossterm::execute!(std::io::stderr(), crossterm::terminal::LeaveAlternateScreen)
+                .unwrap();
+            crossterm::terminal::disable_raw_mode().unwrap();
+        }));
         let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
         terminal.clear()?;
-
         redraw(&mut terminal, &app)?;
 
         loop {
             if event::poll(std::time::Duration::from_millis(250))? {
-                if let event::Event::Key(key) = event::read()? {
+                let event = event::read()?;
+                if let event::Event::Key(key) = event {
                     if key.kind == KeyEventKind::Press {
                         match key.code {
                             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -117,9 +122,9 @@ mod app {
                                 app.update(code);
                             }
                         }
-                        redraw(&mut terminal, &app)?;
                     }
                 }
+                redraw(&mut terminal, &app)?;
             }
         }
 
