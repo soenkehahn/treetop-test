@@ -6,22 +6,24 @@ use ratatui::{
     style::Stylize,
     widgets::{Paragraph, Widget},
 };
-use sysinfo::Pid;
+use sysinfo::{Pid, System};
 
-pub(crate) fn run_ui(tree: Tree<Pid, Process>) -> R<()> {
-    app::run_ui(PorcApp::new(tree))
+pub(crate) fn run_ui(tree: Tree<Pid, Process>, system: System) -> R<()> {
+    app::run_ui(PorcApp::new(tree, system))
 }
 
 struct PorcApp {
     tree: Tree<Pid, Process>,
     pattern: String,
+    system: System,
 }
 
 impl PorcApp {
-    fn new(tree: Tree<Pid, Process>) -> Self {
+    fn new(tree: Tree<Pid, Process>, system: System) -> Self {
         PorcApp {
             tree,
             pattern: "".to_string(),
+            system,
         }
     }
 }
@@ -65,6 +67,17 @@ impl app::App for PorcApp {
                 buf,
             );
     }
+
+    fn tick(&mut self) {
+        self.system.refresh_processes();
+        self.system.refresh_cpu_usage();
+        self.tree = Process::new_from_sysinfo(
+            self.system
+                .processes()
+                .values()
+                .filter(|process| process.thread_kind().is_none()),
+        );
+    }
 }
 
 mod app {
@@ -80,10 +93,12 @@ mod app {
         prelude::{CrosstermBackend, Terminal},
         widgets::Widget,
     };
-    use std::io::stdout;
-    use std::io::Stdout;
+    use std::{io::stdout, time::Instant};
+    use std::{io::Stdout, time::Duration};
 
     pub(crate) trait App {
+        fn tick(&mut self);
+
         fn update(&mut self, key: KeyCode);
 
         fn render(&self, area: Rect, buf: &mut Buffer);
@@ -107,10 +122,13 @@ mod app {
         }));
         let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
         terminal.clear()?;
+        let tick_length = Duration::from_millis(1000);
+        let mut last_tick = Instant::now();
+        app.tick();
         redraw(&mut terminal, &app)?;
-
         loop {
-            if event::poll(std::time::Duration::from_millis(250))? {
+            let has_event = event::poll(tick_length - last_tick.elapsed())?;
+            if has_event {
                 let event = event::read()?;
                 if let event::Event::Key(key) = event {
                     if key.kind == KeyEventKind::Press {
@@ -118,14 +136,18 @@ mod app {
                             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                                 break
                             }
-                            code => {
+                            code if key.modifiers.is_empty() => {
                                 app.update(code);
                             }
+                            _ => {}
                         }
                     }
                 }
-                redraw(&mut terminal, &app)?;
+            } else {
+                app.tick();
+                last_tick = Instant::now();
             }
+            redraw(&mut terminal, &app)?;
         }
 
         stdout().execute(LeaveAlternateScreen)?;
