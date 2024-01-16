@@ -27,30 +27,38 @@ where
     Id: Eq + std::hash::Hash + Ord + Clone,
     Node: crate::tree::Node<Id> + Display,
 {
-    pub(crate) fn new(nodes: impl Iterator<Item = Node>) -> Self {
-        let mut map = HashMap::new();
-        let mut children = HashMap::new();
-        let mut roots = Vec::new();
-        for node in nodes {
+    pub(crate) fn new(input: impl Iterator<Item = Node>) -> Self {
+        let mut result = Tree {
+            nodes: HashMap::new(),
+            children: HashMap::new(),
+            roots: Vec::new(),
+        };
+        for node in input {
             if let Some(parent) = node.parent() {
-                children.entry(parent).or_insert(Vec::new()).push(node.id());
+                result
+                    .children
+                    .entry(parent)
+                    .or_insert(Vec::new())
+                    .push(node.id());
             } else {
-                roots.push(node.id());
+                result.roots.push(node.id());
             }
-            map.insert(node.id(), node);
+            result.nodes.insert(node.id(), node);
         }
         let sort_ids = |ids: &mut Vec<Id>| {
-            ids.sort_by(|a, b| map.get(a).unwrap().cmp(map.get(b).unwrap()));
+            ids.sort_by(|a, b| {
+                result
+                    .nodes
+                    .get(a)
+                    .unwrap()
+                    .cmp(result.nodes.get(b).unwrap())
+            });
         };
-        for (_, children) in children.iter_mut() {
+        for (_, children) in result.children.iter_mut() {
             sort_ids(children);
         }
-        sort_ids(&mut roots);
-        Tree {
-            nodes: map,
-            children,
-            roots,
-        }
+        sort_ids(&mut result.roots);
+        result
     }
 
     fn children(&self, id: Id) -> &[Id] {
