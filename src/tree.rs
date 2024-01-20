@@ -22,6 +22,12 @@ pub(crate) trait Node {
 #[derive(Debug)]
 pub(crate) struct Forest<Node>(Vec<Tree<Node>>);
 
+#[derive(Debug)]
+pub(crate) struct Tree<Node> {
+    node: Node,
+    children: Forest<Node>,
+}
+
 impl<Node> Forest<Node>
 where
     Node: crate::tree::Node + Display,
@@ -67,7 +73,7 @@ where
     fn sort(&mut self) {
         self.0.sort_by(|a, b| a.node.cmp(&b.node));
         for tree in self.0.iter_mut() {
-            tree.sort_children();
+            tree.children.sort();
         }
     }
 
@@ -136,52 +142,25 @@ where
             .collect();
         for (i, child) in children.iter().enumerate() {
             let is_last = i == children.len() - 1;
-            child.format_helper(included, is_root, is_last, prefixes, acc);
+            if !included.contains(&child.node.id()) {
+                continue;
+            }
+            *acc += &format!("{} ┃ ", child.node.format_table());
+            for prefix in prefixes.iter() {
+                *acc += prefix;
+            }
+            if !is_root {
+                *acc += if is_last { "└─" } else { "├─" };
+                let has_children = !child.children.0.is_empty();
+                *acc += if has_children { "┬ " } else { "─ " };
+            }
+            *acc += &format!("{}\n", child.node);
+            if !(is_root) {
+                prefixes.push(if is_last { "  " } else { "│ " });
+            }
+            child.children.format_helper(included, false, prefixes, acc);
+            prefixes.pop();
         }
-    }
-}
-
-#[derive(Debug)]
-pub(crate) struct Tree<Node> {
-    node: Node,
-    children: Forest<Node>,
-}
-
-impl<Node> Tree<Node>
-where
-    Node: crate::tree::Node + Display,
-    Node::Id: Hash + Eq + Copy,
-{
-    fn sort_children(&mut self) {
-        self.children.sort();
-    }
-
-    fn format_helper(
-        &self,
-        included: &HashSet<Node::Id>,
-        is_root: bool,
-        is_last: bool,
-        prefixes: &mut Vec<&str>,
-        acc: &mut String,
-    ) {
-        if !included.contains(&self.node.id()) {
-            return;
-        }
-        *acc += &format!("{} ┃ ", self.node.format_table());
-        for prefix in prefixes.iter() {
-            *acc += prefix;
-        }
-        if !is_root {
-            *acc += if is_last { "└─" } else { "├─" };
-            let has_children = !self.children.0.is_empty();
-            *acc += if has_children { "┬ " } else { "─ " };
-        }
-        *acc += &format!("{}\n", self.node);
-        if !(is_root) {
-            prefixes.push(if is_last { "  " } else { "│ " });
-        }
-        self.children.format_helper(included, false, prefixes, acc);
-        prefixes.pop();
     }
 }
 
