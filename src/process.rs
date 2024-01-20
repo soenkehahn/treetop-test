@@ -1,5 +1,5 @@
+use crate::tree::Forest;
 use crate::tree::Node;
-use crate::tree::Tree;
 use std::fmt;
 use sysinfo::Pid;
 
@@ -17,7 +17,9 @@ impl fmt::Display for Process {
     }
 }
 
-impl Node<Pid> for Process {
+impl Node for Process {
+    type Id = Pid;
+
     fn id(&self) -> Pid {
         self.pid
     }
@@ -36,6 +38,10 @@ impl Node<Pid> for Process {
             .partial_cmp(&self.cpu)
             .unwrap_or(self.pid.cmp(&other.pid))
     }
+
+    fn accumulate_from(&mut self, other: &Self) {
+        self.cpu += other.cpu;
+    }
 }
 
 impl Process {
@@ -50,7 +56,7 @@ impl Process {
 
     pub(crate) fn new_from_sysinfo<'a>(
         processes: impl Iterator<Item = &'a sysinfo::Process>,
-    ) -> Tree<Pid, Self> {
-        Tree::new(processes.map(Process::from_sysinfo_process))
+    ) -> Forest<Self> {
+        Forest::new_forest(processes.map(Process::from_sysinfo_process))
     }
 }

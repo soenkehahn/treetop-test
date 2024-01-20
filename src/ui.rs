@@ -1,4 +1,4 @@
-use crate::{process::Process, tree::Tree, R};
+use crate::{process::Process, tree::Forest, R};
 use crossterm::event::KeyCode;
 use ratatui::{
     buffer::Buffer,
@@ -6,20 +6,20 @@ use ratatui::{
     style::Stylize,
     widgets::{Paragraph, Widget},
 };
-use sysinfo::{Pid, System};
+use sysinfo::System;
 
-pub(crate) fn run_ui(tree: Tree<Pid, Process>, system: System) -> R<()> {
+pub(crate) fn run_ui(tree: Forest<Process>, system: System) -> R<()> {
     app::run_ui(PorcApp::new(tree, system))
 }
 
 struct PorcApp {
-    tree: Tree<Pid, Process>,
+    tree: Forest<Process>,
     pattern: String,
     system: System,
 }
 
 impl PorcApp {
-    fn new(tree: Tree<Pid, Process>, system: System) -> Self {
+    fn new(tree: Forest<Process>, system: System) -> Self {
         PorcApp {
             tree,
             pattern: "".to_string(),
