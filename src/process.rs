@@ -1,5 +1,7 @@
 use crate::tree::Forest;
 use crate::tree::Node;
+use num_format::Locale;
+use num_format::ToFormattedString;
 use std::fmt;
 use sysinfo::Pid;
 
@@ -9,6 +11,7 @@ pub(crate) struct Process {
     pub(crate) name: String,
     parent: Option<Pid>,
     cpu: f32,
+    ram: u64,
 }
 
 impl fmt::Display for Process {
@@ -25,7 +28,12 @@ impl Node for Process {
     }
 
     fn format_table(&self) -> String {
-        format!("{:>8} {:>4.0}%", self.pid.as_u32(), self.cpu)
+        format!(
+            "{:>8} {:>4.0}% {:>7}MB",
+            self.pid.as_u32(),
+            self.cpu,
+            (self.ram / 2_u64.pow(20)).to_formatted_string(&Locale::en)
+        )
     }
 
     fn parent(&self) -> Option<Pid> {
@@ -41,6 +49,7 @@ impl Node for Process {
 
     fn accumulate_from(&mut self, other: &Self) {
         self.cpu += other.cpu;
+        self.ram += other.ram;
     }
 }
 
@@ -51,6 +60,7 @@ impl Process {
             name: process.name().to_string(),
             parent: process.parent(),
             cpu: process.cpu_usage(),
+            ram: process.memory(),
         }
     }
 
