@@ -57,7 +57,13 @@ impl Process {
     fn from_sysinfo_process(process: &sysinfo::Process) -> Self {
         Process {
             pid: process.pid(),
-            name: process.name().to_string(),
+            name: match process.exe() {
+                Some(exe) => match exe.file_name() {
+                    Some(file_name) => file_name.to_string_lossy().to_string(),
+                    None => exe.to_string_lossy().to_string(),
+                },
+                None => process.name().to_string(),
+            },
             parent: process.parent(),
             cpu: process.cpu_usage(),
             ram: process.memory(),

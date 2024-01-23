@@ -6,7 +6,7 @@ use ratatui::{
     style::Stylize,
     widgets::{Paragraph, Widget},
 };
-use sysinfo::{ProcessRefreshKind, System};
+use sysinfo::{ProcessRefreshKind, System, UpdateKind};
 
 pub(crate) fn run_ui(tree: Forest<Process>, system: System) -> R<()> {
     app::run_ui(PorcApp::new(tree, system))
@@ -69,8 +69,12 @@ impl app::App for PorcApp {
     }
 
     fn tick(&mut self) {
-        self.system
-            .refresh_processes_specifics(ProcessRefreshKind::new().with_memory().with_cpu());
+        self.system.refresh_processes_specifics(
+            ProcessRefreshKind::new()
+                .with_memory()
+                .with_cpu()
+                .with_exe(UpdateKind::OnlyIfNotSet),
+        );
         self.tree = Process::new_from_sysinfo(
             self.system
                 .processes()
