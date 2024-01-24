@@ -119,10 +119,11 @@ mod app {
     pub(crate) fn run_ui<T: App>(mut app: T) -> R<()> {
         stdout().execute(EnterAlternateScreen)?;
         enable_raw_mode()?;
-        std::panic::set_hook(Box::new(|_panic_info| {
+        std::panic::set_hook(Box::new(|panic_info| {
             crossterm::execute!(std::io::stderr(), crossterm::terminal::LeaveAlternateScreen)
                 .unwrap();
             crossterm::terminal::disable_raw_mode().unwrap();
+            eprintln!("panic: {}", panic_info);
         }));
         let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
         terminal.clear()?;
