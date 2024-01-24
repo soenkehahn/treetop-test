@@ -132,7 +132,11 @@ mod app {
         app.tick();
         redraw(&mut terminal, &app)?;
         loop {
-            let has_event = event::poll(tick_length - last_tick.elapsed())?;
+            let has_event = event::poll(
+                tick_length
+                    .checked_sub(last_tick.elapsed())
+                    .unwrap_or_default(),
+            )?;
             if has_event {
                 let event = event::read()?;
                 if let event::Event::Key(key) = event {
