@@ -42,18 +42,21 @@ impl app::App for PorcApp {
     }
 
     fn render(&self, area: Rect, buf: &mut Buffer) {
-        Paragraph::new(self.tree.format(|p| p.name.contains(&self.pattern)))
-            .white()
-            .on_black()
-            .render(
-                Rect {
-                    x: area.x,
-                    y: area.y,
-                    width: area.width,
-                    height: area.height - 1,
-                },
-                buf,
-            );
+        Paragraph::new(
+            self.tree
+                .format(|p| p.name.contains(&self.pattern), area.width),
+        )
+        .white()
+        .on_black()
+        .render(
+            Rect {
+                x: area.x,
+                y: area.y,
+                width: area.width,
+                height: area.height - 1,
+            },
+            buf,
+        );
         Paragraph::new(format!("search pattern: {}", self.pattern))
             .black()
             .on_white()

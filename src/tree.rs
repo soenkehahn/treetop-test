@@ -10,7 +10,24 @@ pub(crate) trait Node {
 
     fn id(&self) -> Self::Id;
 
-    fn format_table(&self) -> String;
+    fn table_header() -> String;
+
+    fn table_data(&self) -> String;
+
+    fn node_header() -> String;
+
+    fn format_header(width: usize) -> String {
+        let mut result = String::new();
+        result += &Self::table_header();
+        result += " ┃ ";
+        result += &Self::node_header();
+        result += "\n";
+        result += &"━".repeat(Self::table_header().len() + 1);
+        result += "╋";
+        result += &"━".repeat(width.saturating_sub(Self::table_header().len() + 2));
+        result += "\n";
+        result
+    }
 
     fn parent(&self) -> Option<Self::Id>;
 
@@ -118,12 +135,13 @@ where
         any_child_included
     }
 
-    pub(crate) fn format<F>(&self, filter: F) -> String
+    pub(crate) fn format<F>(&self, filter: F, width: u16) -> String
     where
         F: Fn(&Node) -> bool,
     {
         let included = self.filter(filter);
         let mut acc = String::new();
+        acc += &Node::format_header(width as usize);
         self.format_helper(&included, true, &mut Vec::new(), &mut acc);
         acc
     }
@@ -145,7 +163,7 @@ where
             if !included.contains(&child.node.id()) {
                 continue;
             }
-            *acc += &format!("{} ┃ ", child.node.format_table());
+            *acc += &format!("{} ┃ ", child.node.table_data());
             for prefix in prefixes.iter() {
                 *acc += prefix;
             }
@@ -199,8 +217,16 @@ mod test {
             self.id
         }
 
-        fn format_table(&self) -> String {
+        fn table_header() -> String {
+            "#".to_owned()
+        }
+
+        fn table_data(&self) -> String {
             self.id.to_string()
+        }
+
+        fn node_header() -> String {
+            "number".to_string()
         }
 
         fn parent(&self) -> Option<u8> {
@@ -224,8 +250,10 @@ mod test {
     fn a_single_node_tree() {
         let tree = Forest::new_forest(vec![TestNode::new(1, None)].into_iter());
         assert_eq!(
-            tree.format(|_| true),
+            tree.format(|_| true, 25),
             "
+                # ┃ number
+                ━━╋━━━━━━━━━━━━━━━━━━━━━━
                 1 ┃ one
             "
             .unindent()
@@ -237,8 +265,10 @@ mod test {
         let tree =
             Forest::new_forest(vec![TestNode::new(1, None), TestNode::new(2, Some(1))].into_iter());
         assert_eq!(
-            tree.format(|_| true),
+            tree.format(|_| true, 25),
             "
+                # ┃ number
+                ━━╋━━━━━━━━━━━━━━━━━━━━━━
                 1 ┃ one
                 2 ┃ └── two
             "
@@ -258,8 +288,10 @@ mod test {
             .into_iter(),
         );
         assert_eq!(
-            tree.format(|_| true),
+            tree.format(|_| true, 25),
             "
+                # ┃ number
+                ━━╋━━━━━━━━━━━━━━━━━━━━━━
                 1 ┃ one
                 2 ┃ ├── two
                 3 ┃ ├── three
@@ -280,8 +312,10 @@ mod test {
             .into_iter(),
         );
         assert_eq!(
-            tree.format(|_| true),
+            tree.format(|_| true, 25),
             "
+                # ┃ number
+                ━━╋━━━━━━━━━━━━━━━━━━━━━━
                 1 ┃ one
                 2 ┃ └─┬ two
                 3 ┃   └── three
@@ -302,12 +336,14 @@ mod test {
             .into_iter(),
         );
         assert_eq!(
-            tree.format(|_| true),
+            tree.format(|_| true, 25),
             "
-              1 ┃ one
-              2 ┃ ├─┬ two
-              3 ┃ │ └── three
-              4 ┃ └── four
+                # ┃ number
+                ━━╋━━━━━━━━━━━━━━━━━━━━━━
+                1 ┃ one
+                2 ┃ ├─┬ two
+                3 ┃ │ └── three
+                4 ┃ └── four
             "
             .unindent()
         );
@@ -318,8 +354,10 @@ mod test {
         let tree =
             Forest::new_forest(vec![TestNode::new(1, None), TestNode::new(2, None)].into_iter());
         assert_eq!(
-            tree.format(|_| true),
+            tree.format(|_| true, 25),
             "
+                # ┃ number
+                ━━╋━━━━━━━━━━━━━━━━━━━━━━
                 1 ┃ one
                 2 ┃ two
             "
@@ -332,8 +370,10 @@ mod test {
         let tree =
             Forest::new_forest(vec![TestNode::new(2, None), TestNode::new(1, None)].into_iter());
         assert_eq!(
-            tree.format(|_| true),
+            tree.format(|_| true, 25),
             "
+                # ┃ number
+                ━━╋━━━━━━━━━━━━━━━━━━━━━━
                 1 ┃ one
                 2 ┃ two
             "
@@ -351,8 +391,10 @@ mod test {
                 vec![TestNode::new(1, None), TestNode::new(2, None)].into_iter(),
             );
             assert_eq!(
-                tree.format(|node| node.id == 2),
+                tree.format(|node| node.id == 2, 25),
                 "
+                    # ┃ number
+                    ━━╋━━━━━━━━━━━━━━━━━━━━━━
                     2 ┃ two
                 "
                 .unindent()
@@ -370,8 +412,10 @@ mod test {
                 .into_iter(),
             );
             assert_eq!(
-                tree.format(|node| node.id == 1),
+                tree.format(|node| node.id == 1, 25),
                 "
+                    # ┃ number
+                    ━━╋━━━━━━━━━━━━━━━━━━━━━━
                     1 ┃ one
                     2 ┃ └── two
                 "
@@ -390,8 +434,10 @@ mod test {
                 .into_iter(),
             );
             assert_eq!(
-                tree.format(|node| node.id == 2),
+                tree.format(|node| node.id == 2, 25),
                 "
+                    # ┃ number
+                    ━━╋━━━━━━━━━━━━━━━━━━━━━━
                     1 ┃ one
                     2 ┃ └── two
                 "
@@ -410,8 +456,10 @@ mod test {
                 .into_iter(),
             );
             assert_eq!(
-                tree.format(|node| node.id == 3),
+                tree.format(|node| node.id == 3, 25),
                 "
+                    # ┃ number
+                    ━━╋━━━━━━━━━━━━━━━━━━━━━━
                     1 ┃ one
                     2 ┃ └─┬ two
                     3 ┃   └── three
@@ -432,8 +480,10 @@ mod test {
                 .into_iter(),
             );
             assert_eq!(
-                tree.format(|node| node.id == 2),
+                tree.format(|node| node.id == 2, 25),
                 "
+                    # ┃ number
+                    ━━╋━━━━━━━━━━━━━━━━━━━━━━
                     1 ┃ one
                     2 ┃ └─┬ two
                     3 ┃   └── three
@@ -454,8 +504,10 @@ mod test {
                 .into_iter(),
             );
             assert_eq!(
-                tree.format(|node| node.id == 2),
+                tree.format(|node| node.id == 2, 25),
                 "
+                    # ┃ number
+                    ━━╋━━━━━━━━━━━━━━━━━━━━━━
                     1 ┃ one
                     2 ┃ └─┬ two
                     3 ┃   └── three
@@ -501,8 +553,16 @@ mod test {
                 self.id
             }
 
-            fn format_table(&self) -> String {
+            fn table_header() -> String {
+                "#".to_owned()
+            }
+
+            fn table_data(&self) -> String {
                 self.id.to_string()
+            }
+
+            fn node_header() -> String {
+                "number".to_owned()
             }
 
             fn parent(&self) -> Option<u8> {
@@ -524,8 +584,10 @@ mod test {
                 vec![TestNode::new(1, None, 2), TestNode::new(2, Some(1), 3)].into_iter(),
             );
             assert_eq!(
-                tree.format(|node| node.id == 2),
+                tree.format(|node| node.id == 2, 25),
                 "
+                    # ┃ number
+                    ━━╋━━━━━━━━━━━━━━━━━━━━━━
                     1 ┃ 5
                     2 ┃ └── 3
                 "
@@ -544,8 +606,10 @@ mod test {
                 .into_iter(),
             );
             assert_eq!(
-                tree.format(|node| node.id == 2),
+                tree.format(|node| node.id == 2, 25),
                 "
+                    # ┃ number
+                    ━━╋━━━━━━━━━━━━━━━━━━━━━━
                     1 ┃ 13
                     2 ┃ └─┬ 11
                     3 ┃   └── 8
@@ -569,8 +633,10 @@ mod test {
                 .into_iter(),
             );
             assert_eq!(
-                tree.format(|_| true),
+                tree.format(|_| true, 25),
                 "
+                    # ┃ number
+                    ━━╋━━━━━━━━━━━━━━━━━━━━━━
                     1 ┃ 12
                     2 ┃ ├─┬ 5
                     3 ┃ │ └── 4
@@ -578,6 +644,56 @@ mod test {
                     5 ┃ │ └── 2
                     6 ┃ └─┬ 3
                     7 ┃   └── 0
+                "
+                .unindent()
+            );
+        }
+    }
+
+    mod j_headers {
+        use super::*;
+        use pretty_assertions::assert_eq;
+
+        #[test]
+        fn a_renders_headers() {
+            struct N;
+            impl Node for N {
+                type Id = u64;
+
+                fn id(&self) -> Self::Id {
+                    todo!()
+                }
+
+                fn table_header() -> String {
+                    "a b c".to_owned()
+                }
+
+                fn table_data(&self) -> String {
+                    todo!()
+                }
+
+                fn node_header() -> String {
+                    "node header".to_owned()
+                }
+
+                fn parent(&self) -> Option<Self::Id> {
+                    todo!()
+                }
+
+                fn cmp(&self, _other: &Self) -> Ordering {
+                    todo!()
+                }
+
+                fn accumulate_from(&mut self, _other: &Self) {
+                    todo!()
+                }
+            }
+
+            assert_eq!(
+                N::format_header(25),
+                "
+                    a b c ┃ node header
+                    ━━━━━━╋━━━━━━━━━━━━━━━━━━
                 "
                 .unindent()
             );
