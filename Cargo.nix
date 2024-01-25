@@ -24,7 +24,7 @@ args@{
   ignoreLockHash,
 }:
 let
-  nixifiedLockHash = "1a2a472d74ad05f0e6b4f44839e8bc6c8fb4d1aaf4eb8f56031cb66e72cc6848";
+  nixifiedLockHash = "bf179aca573055efc5d665ee8e624f0ee1587b8cf574a4be895ee341b6fdbb63";
   workspaceSrc = if args.workspaceSrc == null then ./. else args.workspaceSrc;
   currentLockHash = builtins.hashFile "sha256" (workspaceSrc + /Cargo.lock);
   lockHashIgnored = if ignoreLockHash
@@ -434,6 +434,7 @@ in
       crossterm = (rustPackages."registry+https://github.com/rust-lang/crates.io-index".crossterm."0.27.0" { inherit profileName; }).out;
       num_format = (rustPackages."registry+https://github.com/rust-lang/crates.io-index".num-format."0.4.4" { inherit profileName; }).out;
       ratatui = (rustPackages."registry+https://github.com/rust-lang/crates.io-index".ratatui."0.25.0" { inherit profileName; }).out;
+      signal_hook = (rustPackages."registry+https://github.com/rust-lang/crates.io-index".signal-hook."0.3.17" { inherit profileName; }).out;
       sysinfo = (rustPackages."registry+https://github.com/rust-lang/crates.io-index".sysinfo."0.30.5" { inherit profileName; }).out;
     };
     devDependencies = {

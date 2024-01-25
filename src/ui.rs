@@ -100,7 +100,14 @@ mod app {
         prelude::{CrosstermBackend, Terminal},
         widgets::Widget,
     };
-    use std::{io::stdout, time::Instant};
+    use std::{
+        io::stdout,
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        },
+        time::Instant,
+    };
     use std::{io::Stdout, time::Duration};
 
     pub(crate) trait App {
@@ -120,12 +127,12 @@ mod app {
     }
 
     pub(crate) fn run_ui<T: App>(mut app: T) -> R<()> {
+        let termination_signal_received = setup_signal_handlers()?;
         stdout().execute(EnterAlternateScreen)?;
         enable_raw_mode()?;
         std::panic::set_hook(Box::new(|panic_info| {
-            crossterm::execute!(std::io::stderr(), crossterm::terminal::LeaveAlternateScreen)
-                .unwrap();
-            crossterm::terminal::disable_raw_mode().unwrap();
+            let _ = stdout().execute(LeaveAlternateScreen);
+            let _ = disable_raw_mode();
             eprintln!("panic: {}", panic_info);
         }));
         let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
@@ -135,6 +142,9 @@ mod app {
         app.tick();
         redraw(&mut terminal, &app)?;
         loop {
+            if termination_signal_received.load(Ordering::Relaxed) {
+                break;
+            }
             let has_event = event::poll(
                 tick_length
                     .checked_sub(last_tick.elapsed())
@@ -161,10 +171,18 @@ mod app {
             }
             redraw(&mut terminal, &app)?;
         }
-
         stdout().execute(LeaveAlternateScreen)?;
         disable_raw_mode()?;
         Ok(())
+    }
+
+    fn setup_signal_handlers() -> R<Arc<AtomicBool>> {
+        use signal_hook::consts::{SIGINT, SIGTERM};
+        use signal_hook::flag::register;
+        let result = Arc::new(AtomicBool::new(false));
+        register(SIGTERM, Arc::clone(&result))?;
+        register(SIGINT, Arc::clone(&result))?;
+        Ok(result)
     }
 
     fn redraw<T: App>(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &T) -> R<()> {

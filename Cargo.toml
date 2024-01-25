@@ -9,6 +9,7 @@ edition = "2021"
 crossterm = "0.27.0"
 num-format = "0.4.4"
 ratatui = "0.25.0"
+signal-hook = "0.3.17"
 sysinfo = "0.30.5"
 
 [dev-dependencies]
