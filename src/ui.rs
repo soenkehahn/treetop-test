@@ -77,7 +77,7 @@ impl app::App for PorcApp {
             ([], KeyCode::Enter, _) => {
                 if let Some(selected) = self.list_state.selected() {
                     if let Some(process) = self.processes.get(selected) {
-                        self.selected_pid = process.0.try_into()?;
+                        self.selected_pid = Some(process.0);
                     }
                 }
             }
@@ -142,24 +142,39 @@ impl app::App for PorcApp {
             buf,
             &mut self.list_state,
         );
-        let status_bar = match self.selected_pid {
-            None => format!(
-                "Ctrl+C: Quit | ↑↓ : scroll | ENTER: select process | type search pattern: {}",
-                self.pattern
-            ),
-            Some(_pid) => {
-                "Ctrl+C: Quit | ↑↓ : scroll | t: SIGTERM process | k: SIGKILL process | ESC: unselect & enter search mode | ENTER: select other".to_string()
+        {
+            let status_bar = match self.selected_pid {
+                None => [
+                    "Ctrl+C: Quit",
+                    "↑↓ : scroll",
+                    "ENTER: select process",
+                    &format!("type search pattern: {}", self.pattern),
+                ]
+                .join(" | "),
+                Some(_pid) => [
+                    "Ctrl+C: Quit",
+                    "↑↓ : scroll",
+                    "t: SIGTERM process",
+                    "k: SIGKILL process",
+                    "ESC: unselect & enter search mode",
+                    "ENTER: select other",
+                ]
+                .join(" | "),
+            };
+            let mut status_bar = Paragraph::new(status_bar).reversed();
+            if self.selected_pid.is_some() {
+                status_bar = status_bar.red();
             }
-        };
-        Paragraph::new(status_bar).black().on_white().render(
-            Rect {
-                x: area.x,
-                y: area.height - 1,
-                width: area.width,
-                height: 1,
-            },
-            buf,
-        );
+            status_bar.render(
+                Rect {
+                    x: area.x,
+                    y: area.height - 1,
+                    width: area.width,
+                    height: 1,
+                },
+                buf,
+            );
+        }
     }
 
     fn tick(&mut self) {
