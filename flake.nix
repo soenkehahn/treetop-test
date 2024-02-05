@@ -1,7 +1,16 @@
 {
+  inputs.flake-compat = {
+    url = "github:edolstra/flake-compat";
+    flake = false;
+  };
   inputs.flake-utils.url = "github:numtide/flake-utils";
-  inputs.cargo2nix.url = "github:cargo2nix/cargo2nix/release-0.11.0";
-  outputs = { self, nixpkgs, flake-utils, cargo2nix }:
+  inputs.cargo2nix = {
+    url = "github:cargo2nix/cargo2nix/release-0.11.0";
+    inputs.nixpkgs.follows = "nixpkgs";
+    inputs.flake-compat.follows = "flake-compat";
+    inputs.flake-utils.follows = "flake-utils";
+  };
+  outputs = { nixpkgs, flake-utils, cargo2nix, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs {
