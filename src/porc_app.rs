@@ -1,5 +1,9 @@
-use self::app::UpdateResult;
-use crate::{process::Process, tree::Node, R};
+use crate::{
+    process::Process,
+    tree::Node,
+    tui_app::{self, UpdateResult},
+    R,
+};
 use crossterm::event::{KeyCode, KeyEvent};
 use nix::sys::signal::kill;
 use ratatui::{
@@ -12,7 +16,7 @@ use ratatui::{
 use sysinfo::{ProcessRefreshKind, System, UpdateKind};
 
 pub(crate) fn run_ui(system: System) -> R<()> {
-    app::run_ui(PorcApp::new(system))
+    tui_app::run_ui(PorcApp::new(system))
 }
 
 #[derive(Debug)]
@@ -36,7 +40,7 @@ impl PorcApp {
     }
 }
 
-impl app::App for PorcApp {
+impl tui_app::TuiApp for PorcApp {
     fn update(&mut self, event: KeyEvent) -> R<UpdateResult> {
         let mut modifiers = event
             .modifiers
@@ -213,7 +217,7 @@ fn normalize_list_state<T>(list_state: &mut ListState, list: &Vec<T>, rect: &Rec
 
 #[cfg(test)]
 mod test {
-    use crate::ui::normalize_list_state;
+    use crate::porc_app::normalize_list_state;
     use ratatui::layout::Rect;
     use ratatui::widgets::ListState;
 
@@ -251,119 +255,5 @@ mod test {
         let mut list_state = ListState::default().with_selected(Some(0)).with_offset(25);
         normalize_list_state(&mut list_state, &vec![(); 30], &RECT);
         assert_eq!(list_state.offset(), 10);
-    }
-}
-
-mod app {
-    use crate::R;
-    use crossterm::{
-        event::{self, KeyEvent, KeyEventKind},
-        terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-        ExecutableCommand,
-    };
-    use ratatui::{
-        buffer::Buffer,
-        layout::Rect,
-        prelude::{CrosstermBackend, Terminal},
-        widgets::StatefulWidget,
-    };
-    use std::{
-        io::stdout,
-        marker::PhantomData,
-        sync::{
-            atomic::{AtomicBool, Ordering},
-            Arc,
-        },
-        time::Instant,
-    };
-    use std::{io::Stdout, time::Duration};
-
-    pub(crate) trait App {
-        fn tick(&mut self);
-
-        fn update(&mut self, event: KeyEvent) -> R<UpdateResult>;
-
-        fn render(&mut self, area: Rect, buf: &mut Buffer);
-    }
-
-    pub(crate) enum UpdateResult {
-        Continue,
-        Exit,
-    }
-
-    struct AppWrapper<T>(PhantomData<T>);
-
-    impl<T: App> StatefulWidget for &mut AppWrapper<T> {
-        type State = T;
-
-        fn render(
-            self,
-            area: ratatui::prelude::Rect,
-            buf: &mut ratatui::prelude::Buffer,
-            app: &mut T,
-        ) {
-            app.render(area, buf);
-        }
-    }
-
-    pub(crate) fn run_ui<T: App>(mut app: T) -> R<()> {
-        let termination_signal_received = setup_signal_handlers()?;
-        stdout().execute(EnterAlternateScreen)?;
-        enable_raw_mode()?;
-        std::panic::set_hook(Box::new(|panic_info| {
-            let _ = stdout().execute(LeaveAlternateScreen);
-            let _ = disable_raw_mode();
-            eprintln!("panic: {}", panic_info);
-        }));
-        let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
-        terminal.clear()?;
-        let tick_length = Duration::from_millis(1000);
-        let mut last_tick = Instant::now();
-        app.tick();
-        redraw(&mut terminal, &mut app)?;
-        loop {
-            if termination_signal_received.load(Ordering::Relaxed) {
-                break;
-            }
-            let has_event = event::poll(
-                tick_length
-                    .checked_sub(last_tick.elapsed())
-                    .unwrap_or_default(),
-            )?;
-            if has_event {
-                let event = event::read()?;
-                if let event::Event::Key(key) = event {
-                    if key.kind == KeyEventKind::Press {
-                        match app.update(key)? {
-                            UpdateResult::Continue => {}
-                            UpdateResult::Exit => break,
-                        }
-                    }
-                }
-            } else {
-                app.tick();
-                last_tick = Instant::now();
-            }
-            redraw(&mut terminal, &mut app)?;
-        }
-        stdout().execute(LeaveAlternateScreen)?;
-        disable_raw_mode()?;
-        Ok(())
-    }
-
-    fn setup_signal_handlers() -> R<Arc<AtomicBool>> {
-        use signal_hook::consts::{SIGINT, SIGTERM};
-        use signal_hook::flag::register;
-        let result = Arc::new(AtomicBool::new(false));
-        register(SIGTERM, Arc::clone(&result))?;
-        register(SIGINT, Arc::clone(&result))?;
-        Ok(result)
-    }
-
-    fn redraw<T: App>(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut T) -> R<()> {
-        terminal.draw(|frame| {
-            frame.render_stateful_widget(&mut AppWrapper(PhantomData), frame.size(), app);
-        })?;
-        Ok(())
     }
 }

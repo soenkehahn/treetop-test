@@ -1,10 +1,11 @@
+use porc_app::run_ui;
 use std::error::Error;
 use sysinfo::System;
-use ui::run_ui;
 
+mod porc_app;
 mod process;
 mod tree;
-mod ui;
+mod tui_app;
 
 type R<A> = Result<A, Box<dyn Error>>;
 
