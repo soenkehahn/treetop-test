@@ -15,28 +15,32 @@ use ratatui::{
 };
 use sysinfo::{ProcessRefreshKind, System, UpdateKind};
 
-pub(crate) fn run_ui(system: System) -> R<()> {
-    tui_app::run_ui(PorcApp::new(system))
-}
-
 #[derive(Debug)]
-struct PorcApp {
+pub(crate) struct PorcApp {
     system: System,
     processes: Vec<(sysinfo::Pid, String)>,
     pattern: String,
     list_state: ListState,
-    selected_pid: Option<sysinfo::Pid>,
+    ui_mode: UiMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UiMode {
+    Normal,
+    EditingPattern,
+    ProcessSelected(sysinfo::Pid),
 }
 
 impl PorcApp {
-    fn new(system: System) -> Self {
-        PorcApp {
+    pub(crate) fn run(system: System, pattern: Option<String>) -> R<()> {
+        let app = PorcApp {
             system,
             processes: Vec::new(),
-            pattern: "".to_string(),
+            pattern: pattern.unwrap_or("".to_string()),
             list_state: ListState::default().with_selected(Some(0)),
-            selected_pid: None,
-        }
+            ui_mode: UiMode::Normal,
+        };
+        tui_app::run_ui(app)
     }
 }
 
@@ -48,53 +52,56 @@ impl tui_app::TuiApp for PorcApp {
             .map(|x| x.0)
             .collect::<Vec<&str>>();
         modifiers.sort();
-        match (modifiers.as_slice(), event.code, self.selected_pid) {
-            (["CONTROL"], KeyCode::Char('c'), _) => {
+        match (modifiers.as_slice(), self.ui_mode, event.code) {
+            (["CONTROL"], _, KeyCode::Char('c')) => {
                 return Ok(UpdateResult::Exit);
             }
-            ([], KeyCode::Char(key), None) if key.is_ascii() => {
-                self.pattern.push(key);
-            }
-            ([], KeyCode::Backspace, None) => {
-                self.pattern.pop();
-            }
-            ([], KeyCode::Up, _) => {
+            ([], _, KeyCode::Up) => {
                 self.list_state.select(Some(
                     self.list_state.selected().unwrap_or(0).saturating_sub(1),
                 ));
             }
-            ([], KeyCode::PageUp, _) => {
+            ([], _, KeyCode::PageUp) => {
                 self.list_state.select(Some(
                     self.list_state.selected().unwrap_or(0).saturating_sub(20),
                 ));
             }
-            ([], KeyCode::Down, _) => {
+            ([], _, KeyCode::Down) => {
                 self.list_state.select(Some(
                     self.list_state.selected().unwrap_or(0).saturating_add(1),
                 ));
             }
-            ([], KeyCode::PageDown, _) => {
+            ([], _, KeyCode::PageDown) => {
                 self.list_state.select(Some(
                     self.list_state.selected().unwrap_or(0).saturating_add(20),
                 ));
             }
-            ([], KeyCode::Enter, _) => {
+            ([], _, KeyCode::Enter) => {
                 if let Some(selected) = self.list_state.selected() {
                     if let Some(process) = self.processes.get(selected) {
-                        self.selected_pid = Some(process.0);
+                        self.ui_mode = UiMode::ProcessSelected(process.0);
                     }
                 }
             }
-            ([], KeyCode::Esc, Some(_)) => {
-                self.selected_pid = None;
+            ([], _, KeyCode::Char('/')) => {
+                self.ui_mode = UiMode::EditingPattern;
             }
-            ([], KeyCode::Char('t'), Some(pid)) => {
+            ([], UiMode::EditingPattern | UiMode::ProcessSelected(_), KeyCode::Esc) => {
+                self.ui_mode = UiMode::Normal;
+            }
+            ([], UiMode::EditingPattern, KeyCode::Char(key)) if key.is_ascii() => {
+                self.pattern.push(key);
+            }
+            ([], UiMode::EditingPattern, KeyCode::Backspace) => {
+                self.pattern.pop();
+            }
+            ([], UiMode::ProcessSelected(pid), KeyCode::Char('t')) => {
                 kill(
                     nix::unistd::Pid::from_raw(pid.as_u32().try_into()?),
                     nix::sys::signal::Signal::SIGTERM,
                 )?;
             }
-            ([], KeyCode::Char('k'), Some(pid)) => {
+            ([], UiMode::ProcessSelected(pid), KeyCode::Char('k')) => {
                 kill(
                     nix::unistd::Pid::from_raw(pid.as_u32().try_into()?),
                     nix::sys::signal::Signal::SIGKILL,
@@ -134,7 +141,7 @@ impl tui_app::TuiApp for PorcApp {
         normalize_list_state(&mut self.list_state, &self.processes, &list_rect);
         let tree_lines = self.processes.iter().map(|x| {
             let line = Line::raw(x.1.as_str());
-            if self.selected_pid == Some(x.0) {
+            if self.ui_mode == UiMode::ProcessSelected(x.0) {
                 line.patch_style(Color::Red)
             } else {
                 line
@@ -147,27 +154,51 @@ impl tui_app::TuiApp for PorcApp {
             &mut self.list_state,
         );
         {
-            let status_bar = match self.selected_pid {
-                None => [
+            let status_bar = match self.ui_mode {
+                UiMode::Normal => {
+                    let mut commands = vec![
+                        "Ctrl+C: Quit".to_string(),
+                        "↑↓ : scroll".to_string(),
+                        "ENTER: select process".to_string(),
+                        "/: filter processes".to_string(),
+                    ];
+                    if !self.pattern.is_empty() {
+                        commands.push(format!("search pattern: {}", self.pattern));
+                    }
+                    commands.join(" | ")
+                }
+                UiMode::EditingPattern => [
                     "Ctrl+C: Quit",
                     "↑↓ : scroll",
                     "ENTER: select process",
-                    &format!("type search pattern: {}", self.pattern),
+                    "ESC: exit search mode",
+                    &format!("type search pattern: {}▌", self.pattern),
                 ]
                 .join(" | "),
-                Some(_pid) => [
-                    "Ctrl+C: Quit",
-                    "↑↓ : scroll",
-                    "t: SIGTERM process",
-                    "k: SIGKILL process",
-                    "ESC: unselect & enter search mode",
-                    "ENTER: select other",
-                ]
-                .join(" | "),
+                UiMode::ProcessSelected(_pid) => {
+                    let mut commands = vec![
+                        "Ctrl+C: Quit".to_string(),
+                        "↑↓ : scroll".to_string(),
+                        "t: SIGTERM process".to_string(),
+                        "k: SIGKILL process".to_string(),
+                        "ESC: unselect".to_string(),
+                        "ENTER: select other".to_string(),
+                    ];
+                    if !self.pattern.is_empty() {
+                        commands.push(format!("search pattern: {}", self.pattern));
+                    }
+                    commands.join(" | ")
+                }
             };
             let mut status_bar = Paragraph::new(status_bar).reversed();
-            if self.selected_pid.is_some() {
-                status_bar = status_bar.red();
+            match self.ui_mode {
+                UiMode::Normal => {}
+                UiMode::EditingPattern => {
+                    status_bar = status_bar.yellow();
+                }
+                UiMode::ProcessSelected(_) => {
+                    status_bar = status_bar.red();
+                }
             }
             status_bar.render(
                 Rect {
@@ -189,9 +220,9 @@ impl tui_app::TuiApp for PorcApp {
                 .with_exe(UpdateKind::OnlyIfNotSet),
         );
         let processes = &self.system.processes();
-        if let Some(selected) = self.selected_pid {
+        if let UiMode::ProcessSelected(selected) = self.ui_mode {
             if !processes.keys().any(|pid| pid == &selected) {
-                self.selected_pid = None;
+                self.ui_mode = UiMode::Normal;
             }
         }
         let tree = Process::new_from_sysinfo(
