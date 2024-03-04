@@ -107,12 +107,7 @@ impl tui_app::TuiApp for PorcApp {
             }
             _ => {}
         }
-        let tree = Process::new_from_sysinfo(
-            self.system
-                .processes()
-                .values()
-                .filter(|process| process.thread_kind().is_none()),
-        );
+        let tree = Process::new_from_sysinfo(self.system.processes().values());
         self.processes = tree.format_processes(|p| p.name.contains(&self.pattern));
         Ok(UpdateResult::Continue)
     }
@@ -223,11 +218,7 @@ impl tui_app::TuiApp for PorcApp {
                 self.ui_mode = UiMode::Normal;
             }
         }
-        let tree = Process::new_from_sysinfo(
-            processes
-                .values()
-                .filter(|process| process.thread_kind().is_none()),
-        );
+        let tree = Process::new_from_sysinfo(processes.values());
         self.processes = tree.format_processes(|p| p.name.contains(&self.pattern));
     }
 }

@@ -4,6 +4,7 @@ use num_format::Locale;
 use num_format::ToFormattedString;
 use std::fmt;
 use sysinfo::Pid;
+use sysinfo::ThreadKind;
 
 #[derive(Debug)]
 pub(crate) struct Process {
@@ -81,6 +82,10 @@ impl Process {
     pub(crate) fn new_from_sysinfo<'a>(
         processes: impl Iterator<Item = &'a sysinfo::Process>,
     ) -> Forest<Self> {
-        Forest::new_forest(processes.map(Process::from_sysinfo_process))
+        Forest::new_forest(
+            processes
+                .filter(|process| process.thread_kind() != Some(ThreadKind::Userland))
+                .map(Process::from_sysinfo_process),
+        )
     }
 }
