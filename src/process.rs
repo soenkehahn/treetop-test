@@ -1,13 +1,21 @@
-use crate::tree::Forest;
+pub(crate) use crate::tree::Forest;
 use crate::tree::Node;
 use num_format::Locale;
 use num_format::ToFormattedString;
+use ratatui::buffer::Buffer;
+use ratatui::layout::Rect;
+use ratatui::style::Modifier;
+use ratatui::style::Style;
+use ratatui::text::Line;
+use ratatui::text::Span;
 use std::fmt;
 use std::path::Path;
 use sysinfo::Pid;
+use sysinfo::ProcessRefreshKind;
 use sysinfo::ThreadKind;
+use sysinfo::UpdateKind;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct Process {
     pid: Pid,
     pub(crate) name: String,
@@ -40,10 +48,6 @@ impl Node for Process {
         self.pid
     }
 
-    fn table_header() -> String {
-        "     pid   cpu       ram".to_owned()
-    }
-
     fn table_data(&self) -> String {
         format!(
             "{:>8} {:>4.0}% {:>7}MB",
@@ -53,20 +57,8 @@ impl Node for Process {
         )
     }
 
-    fn node_header() -> String {
-        "executable".to_owned()
-    }
-
     fn parent(&self) -> Option<Pid> {
         self.parent
-    }
-
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        match other.cpu.partial_cmp(&self.cpu) {
-            Some(std::cmp::Ordering::Equal) => self.pid.cmp(&other.pid),
-            Some(ordering) => ordering,
-            None => self.pid.cmp(&other.pid),
-        }
     }
 
     fn accumulate_from(&mut self, other: &Self) {
@@ -93,13 +85,163 @@ impl Process {
         }
     }
 
-    pub(crate) fn new_from_sysinfo<'a>(
-        processes: impl Iterator<Item = &'a sysinfo::Process>,
-    ) -> Forest<Self> {
-        Forest::new_forest(
-            processes
-                .filter(|process| process.thread_kind() != Some(ThreadKind::Userland))
-                .map(Process::from_sysinfo_process),
-        )
+    pub(crate) fn compare(&self, other: &Process, sort_by: SortBy) -> std::cmp::Ordering {
+        let ordering = match sort_by {
+            SortBy::Pid => self.id().partial_cmp(&other.id()),
+            SortBy::Cpu => other.cpu.partial_cmp(&self.cpu),
+            SortBy::Ram => other.ram.partial_cmp(&self.ram),
+        };
+        match ordering {
+            Some(std::cmp::Ordering::Equal) => self.pid.cmp(&other.pid),
+            Some(ordering) => ordering,
+            None => self.pid.cmp(&other.pid),
+        }
+    }
+
+    pub(crate) fn render_header(area: Rect, sort_by: SortBy, buffer: &mut Buffer) -> u16 {
+        let table_header = {
+            let mut line = Line::default();
+            for column in SortBy::all() {
+                let leading_spaces = match column {
+                    SortBy::Pid => 5,
+                    SortBy::Cpu => 3,
+                    SortBy::Ram => 7,
+                };
+                line.push_span(" ".repeat(leading_spaces));
+                line.push_span(Span::styled(
+                    format!("{:?}", column).to_lowercase(),
+                    if column == sort_by {
+                        Style::new().add_modifier(Modifier::REVERSED)
+                    } else {
+                        Style::new()
+                    },
+                ));
+            }
+            line.push_span(" ");
+            line
+        };
+        buffer.set_line(area.x, area.y, &table_header, area.width);
+        if let Ok(table_header_length) = table_header.width().try_into() {
+            if let Some(cell) = buffer.cell_mut((table_header_length, area.y)) {
+                cell.set_symbol("┃");
+            }
+            buffer.set_string(
+                area.x + table_header_length + 2,
+                area.y,
+                "executable",
+                Style::new(),
+            );
+            for x in (area.x)..(area.width) {
+                if let Some(cell) = buffer.cell_mut((x, area.y + 1)) {
+                    cell.set_symbol(if x == table_header_length {
+                        "╋"
+                    } else {
+                        "━"
+                    });
+                }
+            }
+        }
+        2
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SortBy {
+    Pid,
+    Cpu,
+    Ram,
+}
+
+impl Default for SortBy {
+    fn default() -> SortBy {
+        SortBy::Pid
+    }
+}
+
+impl SortBy {
+    pub(crate) fn next(self) -> SortBy {
+        match self {
+            SortBy::Pid => SortBy::Cpu,
+            SortBy::Cpu => SortBy::Ram,
+            SortBy::Ram => SortBy::Pid,
+        }
+    }
+
+    fn all() -> impl Iterator<Item = SortBy> {
+        vec![SortBy::Pid, SortBy::Cpu, SortBy::Ram].into_iter()
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct ProcessWatcher(ProcessWatcherInner);
+
+#[derive(Debug)]
+enum ProcessWatcherInner {
+    Production {
+        system: sysinfo::System,
+    },
+    #[cfg(test)]
+    TestWatcher {
+        processes: Vec<Process>,
+    },
+}
+
+impl ProcessWatcher {
+    pub(crate) fn new(system: sysinfo::System) -> ProcessWatcher {
+        ProcessWatcher(ProcessWatcherInner::Production { system })
+    }
+
+    pub(crate) fn refresh(&mut self) {
+        match self {
+            ProcessWatcher(ProcessWatcherInner::Production { system }) => system
+                .refresh_processes_specifics(
+                    ProcessRefreshKind::new()
+                        .with_memory()
+                        .with_cpu()
+                        .with_cmd(UpdateKind::OnlyIfNotSet),
+                ),
+            #[cfg(test)]
+            ProcessWatcher(ProcessWatcherInner::TestWatcher { .. }) => {}
+        }
+    }
+
+    pub(crate) fn get_forest(&self) -> Forest<Process> {
+        match self {
+            ProcessWatcher(ProcessWatcherInner::Production { system }) => Forest::new_forest(
+                system
+                    .processes()
+                    .values()
+                    .filter(|process| process.thread_kind() != Some(ThreadKind::Userland))
+                    .map(Process::from_sysinfo_process),
+            ),
+            #[cfg(test)]
+            ProcessWatcher(ProcessWatcherInner::TestWatcher { processes }) => {
+                Forest::new_forest(processes.iter().cloned())
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod test {
+    use super::*;
+
+    impl Process {
+        pub(crate) fn fake(pid: usize, cpu: f32, parent: Option<usize>) -> Process {
+            Process {
+                pid: pid.into(),
+                name: crate::utils::test::render_number(pid).to_string(),
+                arguments: Vec::new(),
+                parent: parent.map(From::from),
+                cpu,
+                ram: 0,
+            }
+        }
+    }
+
+    impl ProcessWatcher {
+        pub(crate) fn fake(processes: Vec<Process>) -> ProcessWatcher {
+            ProcessWatcher(ProcessWatcherInner::TestWatcher { processes })
+        }
     }
 }

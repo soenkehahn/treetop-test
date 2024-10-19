@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::hash::Hash;
@@ -10,39 +11,21 @@ pub(crate) trait Node {
 
     fn id(&self) -> Self::Id;
 
-    fn table_header() -> String;
-
     fn table_data(&self) -> String;
-
-    fn node_header() -> String;
-
-    fn format_header(width: usize) -> Vec<String> {
-        let mut first = String::new();
-        first += &Self::table_header();
-        first += " ┃ ";
-        first += &Self::node_header();
-        let mut second = String::new();
-        second += &"━".repeat(Self::table_header().len() + 1);
-        second += "╋";
-        second += &"━".repeat(width.saturating_sub(Self::table_header().len() + 2));
-        vec![first, second]
-    }
 
     fn parent(&self) -> Option<Self::Id>;
 
-    fn cmp(&self, other: &Self) -> Ordering;
-
     fn accumulate_from(&mut self, other: &Self);
 }
-
-#[derive(Debug)]
-pub(crate) struct Forest<Node>(Vec<Tree<Node>>);
 
 #[derive(Debug)]
 pub(crate) struct Tree<Node> {
     node: Node,
     children: Forest<Node>,
 }
+
+#[derive(Debug)]
+pub(crate) struct Forest<Node>(Vec<Tree<Node>>);
 
 impl<Node> Forest<Node>
 where
@@ -66,7 +49,6 @@ where
         }
         let mut result = Forest::mk_forest(&mut node_map, &mut children_map, roots);
         result.compute_accumulate();
-        result.sort();
         result
     }
 
@@ -86,10 +68,35 @@ where
         result
     }
 
-    fn sort(&mut self) {
-        self.0.sort_by(|a, b| a.node.cmp(&b.node));
+    pub(crate) fn iter(&self) -> impl Iterator<Item = &Node> {
+        struct Iter<'a, Node>(VecDeque<&'a Tree<Node>>);
+
+        impl<'a, Node> Iterator for Iter<'a, Node> {
+            type Item = &'a Node;
+
+            fn next(&mut self) -> Option<&'a Node> {
+                match self.0.pop_front() {
+                    Some(tree) => {
+                        for child in tree.children.0.iter().rev() {
+                            self.0.push_front(child);
+                        }
+                        Some(&tree.node)
+                    }
+                    None => None,
+                }
+            }
+        }
+
+        Iter(self.0.iter().rev().collect())
+    }
+
+    pub(crate) fn sort_by<F>(&mut self, compare: &F)
+    where
+        F: Fn(&Node, &Node) -> Ordering,
+    {
+        self.0.sort_by(|a, b| compare(&a.node, &b.node));
         for tree in self.0.iter_mut() {
-            tree.children.sort();
+            tree.children.sort_by(compare);
         }
     }
 
@@ -194,74 +201,51 @@ mod test {
         Node: crate::tree::Node,
         Node::Id: Eq + Copy + Hash,
     {
-        fn test_format<F>(&self, filter: F, width: u16) -> String
+        fn test_format<F>(&self, filter: F) -> String
         where
             F: Fn(&Node) -> bool,
         {
-            let header = Node::format_header(width.into());
             let table: Vec<String> = self
                 .format_processes(filter)
                 .into_iter()
                 .map(|x| x.1)
                 .collect();
-            format!("{}\n{}\n", header.join("\n"), table.join("\n"))
+            format!("{}\n", table.join("\n"))
         }
     }
 
     #[derive(Debug)]
     struct TestNode {
-        id: u8,
-        parent: Option<u8>,
+        id: usize,
+        parent: Option<usize>,
     }
 
     impl Display for TestNode {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(
-                f,
-                "{}",
-                match self.id {
-                    1 => "one",
-                    2 => "two",
-                    3 => "three",
-                    4 => "four",
-                    n => panic!("TestNode out of range: {}", n),
-                }
-            )
+            write!(f, "{}", crate::utils::test::render_number(self.id))
         }
     }
 
     impl Node for TestNode {
-        type Id = u8;
+        type Id = usize;
 
-        fn id(&self) -> u8 {
+        fn id(&self) -> usize {
             self.id
-        }
-
-        fn table_header() -> String {
-            "#".to_owned()
         }
 
         fn table_data(&self) -> String {
             self.id.to_string()
         }
 
-        fn node_header() -> String {
-            "number".to_string()
-        }
-
-        fn parent(&self) -> Option<u8> {
+        fn parent(&self) -> Option<usize> {
             self.parent
-        }
-
-        fn cmp(&self, other: &Self) -> Ordering {
-            self.id.cmp(&other.id)
         }
 
         fn accumulate_from(&mut self, _other: &Self) {}
     }
 
     impl TestNode {
-        fn new(id: u8, parent: Option<u8>) -> TestNode {
+        fn new(id: usize, parent: Option<usize>) -> TestNode {
             TestNode { id, parent }
         }
     }
@@ -270,10 +254,8 @@ mod test {
     fn a_single_node_tree() {
         let tree = Forest::new_forest(vec![TestNode::new(1, None)].into_iter());
         assert_eq!(
-            tree.test_format(|_| true, 25),
+            tree.test_format(|_| true),
             "
-                # ┃ number
-                ━━╋━━━━━━━━━━━━━━━━━━━━━━
                 1 ┃ one
             "
             .unindent()
@@ -285,10 +267,8 @@ mod test {
         let tree =
             Forest::new_forest(vec![TestNode::new(1, None), TestNode::new(2, Some(1))].into_iter());
         assert_eq!(
-            tree.test_format(|_| true, 25),
+            tree.test_format(|_| true),
             "
-                # ┃ number
-                ━━╋━━━━━━━━━━━━━━━━━━━━━━
                 1 ┃ one
                 2 ┃ └── two
             "
@@ -308,10 +288,8 @@ mod test {
             .into_iter(),
         );
         assert_eq!(
-            tree.test_format(|_| true, 25),
+            tree.test_format(|_| true),
             "
-                # ┃ number
-                ━━╋━━━━━━━━━━━━━━━━━━━━━━
                 1 ┃ one
                 2 ┃ ├── two
                 3 ┃ ├── three
@@ -332,10 +310,8 @@ mod test {
             .into_iter(),
         );
         assert_eq!(
-            tree.test_format(|_| true, 25),
+            tree.test_format(|_| true),
             "
-                # ┃ number
-                ━━╋━━━━━━━━━━━━━━━━━━━━━━
                 1 ┃ one
                 2 ┃ └─┬ two
                 3 ┃   └── three
@@ -356,10 +332,8 @@ mod test {
             .into_iter(),
         );
         assert_eq!(
-            tree.test_format(|_| true, 25),
+            tree.test_format(|_| true),
             "
-                # ┃ number
-                ━━╋━━━━━━━━━━━━━━━━━━━━━━
                 1 ┃ one
                 2 ┃ ├─┬ two
                 3 ┃ │ └── three
@@ -374,10 +348,8 @@ mod test {
         let tree =
             Forest::new_forest(vec![TestNode::new(1, None), TestNode::new(2, None)].into_iter());
         assert_eq!(
-            tree.test_format(|_| true, 25),
+            tree.test_format(|_| true),
             "
-                # ┃ number
-                ━━╋━━━━━━━━━━━━━━━━━━━━━━
                 1 ┃ one
                 2 ┃ two
             "
@@ -386,16 +358,15 @@ mod test {
     }
 
     #[test]
-    fn g_sorts_roots_by_id() {
-        let tree =
-            Forest::new_forest(vec![TestNode::new(2, None), TestNode::new(1, None)].into_iter());
+    fn g_allows_sorting_roots_by_cmp() {
+        let mut tree =
+            Forest::new_forest(vec![TestNode::new(1, None), TestNode::new(2, None)].into_iter());
+        tree.sort_by(&|a, b| b.id.cmp(&a.id));
         assert_eq!(
-            tree.test_format(|_| true, 25),
+            tree.test_format(|_| true),
             "
-                # ┃ number
-                ━━╋━━━━━━━━━━━━━━━━━━━━━━
-                1 ┃ one
                 2 ┃ two
+                1 ┃ one
             "
             .unindent()
         );
@@ -411,10 +382,8 @@ mod test {
                 vec![TestNode::new(1, None), TestNode::new(2, None)].into_iter(),
             );
             assert_eq!(
-                tree.test_format(|node| node.id == 2, 25),
+                tree.test_format(|node| node.id == 2),
                 "
-                    # ┃ number
-                    ━━╋━━━━━━━━━━━━━━━━━━━━━━
                     2 ┃ two
                 "
                 .unindent()
@@ -432,10 +401,8 @@ mod test {
                 .into_iter(),
             );
             assert_eq!(
-                tree.test_format(|node| node.id == 1, 25),
+                tree.test_format(|node| node.id == 1),
                 "
-                    # ┃ number
-                    ━━╋━━━━━━━━━━━━━━━━━━━━━━
                     1 ┃ one
                     2 ┃ └── two
                 "
@@ -454,10 +421,8 @@ mod test {
                 .into_iter(),
             );
             assert_eq!(
-                tree.test_format(|node| node.id == 2, 25),
+                tree.test_format(|node| node.id == 2),
                 "
-                    # ┃ number
-                    ━━╋━━━━━━━━━━━━━━━━━━━━━━
                     1 ┃ one
                     2 ┃ └── two
                 "
@@ -476,10 +441,8 @@ mod test {
                 .into_iter(),
             );
             assert_eq!(
-                tree.test_format(|node| node.id == 3, 25),
+                tree.test_format(|node| node.id == 3),
                 "
-                    # ┃ number
-                    ━━╋━━━━━━━━━━━━━━━━━━━━━━
                     1 ┃ one
                     2 ┃ └─┬ two
                     3 ┃   └── three
@@ -500,10 +463,8 @@ mod test {
                 .into_iter(),
             );
             assert_eq!(
-                tree.test_format(|node| node.id == 2, 25),
+                tree.test_format(|node| node.id == 2),
                 "
-                    # ┃ number
-                    ━━╋━━━━━━━━━━━━━━━━━━━━━━
                     1 ┃ one
                     2 ┃ └─┬ two
                     3 ┃   └── three
@@ -524,10 +485,8 @@ mod test {
                 .into_iter(),
             );
             assert_eq!(
-                tree.test_format(|node| node.id == 2, 25),
+                tree.test_format(|node| node.id == 2),
                 "
-                    # ┃ number
-                    ━━╋━━━━━━━━━━━━━━━━━━━━━━
                     1 ┃ one
                     2 ┃ └─┬ two
                     3 ┃   └── three
@@ -573,24 +532,12 @@ mod test {
                 self.id
             }
 
-            fn table_header() -> String {
-                "#".to_owned()
-            }
-
             fn table_data(&self) -> String {
                 self.id.to_string()
             }
 
-            fn node_header() -> String {
-                "number".to_owned()
-            }
-
             fn parent(&self) -> Option<u8> {
                 self.parent
-            }
-
-            fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-                other.to_accumulate.cmp(&self.to_accumulate)
             }
 
             fn accumulate_from(&mut self, other: &Self) {
@@ -604,10 +551,8 @@ mod test {
                 vec![TestNode::new(1, None, 2), TestNode::new(2, Some(1), 3)].into_iter(),
             );
             assert_eq!(
-                tree.test_format(|node| node.id == 2, 25),
+                tree.test_format(|node| node.id == 2),
                 "
-                    # ┃ number
-                    ━━╋━━━━━━━━━━━━━━━━━━━━━━
                     1 ┃ 5
                     2 ┃ └── 3
                 "
@@ -626,10 +571,8 @@ mod test {
                 .into_iter(),
             );
             assert_eq!(
-                tree.test_format(|node| node.id == 2, 25),
+                tree.test_format(|node| node.id == 2),
                 "
-                    # ┃ number
-                    ━━╋━━━━━━━━━━━━━━━━━━━━━━
                     1 ┃ 13
                     2 ┃ └─┬ 11
                     3 ┃   └── 8
@@ -653,10 +596,8 @@ mod test {
                 .into_iter(),
             );
             assert_eq!(
-                tree.test_format(|_| true, 25),
+                tree.test_format(|_| true),
                 "
-                    # ┃ number
-                    ━━╋━━━━━━━━━━━━━━━━━━━━━━
                     1 ┃ 12
                     2 ┃ ├─┬ 5
                     3 ┃ │ └── 4
@@ -670,52 +611,25 @@ mod test {
         }
     }
 
-    mod j_headers {
+    mod k_iterators {
         use super::*;
         use pretty_assertions::assert_eq;
 
         #[test]
-        fn a_renders_headers() {
-            struct N;
-            impl Node for N {
-                type Id = u64;
-
-                fn id(&self) -> Self::Id {
-                    todo!()
-                }
-
-                fn table_header() -> String {
-                    "a b c".to_owned()
-                }
-
-                fn table_data(&self) -> String {
-                    todo!()
-                }
-
-                fn node_header() -> String {
-                    "node header".to_owned()
-                }
-
-                fn parent(&self) -> Option<Self::Id> {
-                    todo!()
-                }
-
-                fn cmp(&self, _other: &Self) -> Ordering {
-                    todo!()
-                }
-
-                fn accumulate_from(&mut self, _other: &Self) {
-                    todo!()
-                }
-            }
-
+        fn a_iterates_through_all_the_nodes() {
+            let tree = Forest::new_forest(
+                vec![
+                    TestNode::new(1, None),
+                    TestNode::new(2, Some(1)),
+                    TestNode::new(3, Some(2)),
+                    TestNode::new(4, Some(1)),
+                ]
+                .into_iter(),
+            );
+            eprintln!("{}", tree.test_format(|_| true));
             assert_eq!(
-                format!("{}\n", N::format_header(25).join("\n")),
-                "
-                    a b c ┃ node header
-                    ━━━━━━╋━━━━━━━━━━━━━━━━━━
-                "
-                .unindent()
+                tree.iter().map(Node::id).collect::<Vec<usize>>(),
+                vec![1, 2, 3, 4]
             );
         }
     }

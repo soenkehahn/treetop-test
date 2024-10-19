@@ -1,3 +1,5 @@
+use crate::process::ProcessWatcher;
+use crate::process::SortBy;
 use crate::{
     process::Process,
     tree::Node,
@@ -13,15 +15,15 @@ use ratatui::{
     text::Line,
     widgets::{List, ListState, Paragraph, StatefulWidget, Widget},
 };
-use sysinfo::{ProcessRefreshKind, System, UpdateKind};
 
 #[derive(Debug)]
 pub(crate) struct PorcApp {
-    system: System,
+    process_watcher: ProcessWatcher,
     processes: Vec<(sysinfo::Pid, String)>,
     pattern: String,
     list_state: ListState,
     ui_mode: UiMode,
+    sort_column: SortBy,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,15 +34,19 @@ enum UiMode {
 }
 
 impl PorcApp {
-    pub(crate) fn run(system: System, pattern: Option<String>) -> R<()> {
-        let app = PorcApp {
-            system,
+    pub(crate) fn new(process_watcher: ProcessWatcher, pattern: Option<String>) -> PorcApp {
+        PorcApp {
+            process_watcher,
             processes: Vec::new(),
             pattern: pattern.unwrap_or("".to_string()),
             list_state: ListState::default().with_selected(Some(0)),
             ui_mode: UiMode::Normal,
-        };
-        tui_app::run_ui(app)
+            sort_column: SortBy::default(),
+        }
+    }
+
+    pub(crate) fn run(self) -> R<()> {
+        tui_app::run_ui(self)
     }
 }
 
@@ -81,6 +87,11 @@ impl tui_app::TuiApp for PorcApp {
             (KeyModifiers::NONE, _, KeyCode::Char('/')) => {
                 self.ui_mode = UiMode::EditingPattern;
             }
+            (KeyModifiers::NONE, _, KeyCode::Tab) => {
+                self.sort_column = self.sort_column.next();
+            }
+
+            // mode specific actions
             (
                 KeyModifiers::NONE,
                 UiMode::EditingPattern | UiMode::ProcessSelected(_),
@@ -108,29 +119,19 @@ impl tui_app::TuiApp for PorcApp {
             }
             _ => {}
         }
-        let tree = Process::new_from_sysinfo(self.system.processes().values());
+        let mut tree = self.process_watcher.get_forest();
+        tree.sort_by(&|a, b| Process::compare(a, b, self.sort_column));
         self.processes = tree.format_processes(|p| p.name.contains(&self.pattern));
         Ok(UpdateResult::Continue)
     }
 
-    fn render(&mut self, area: Rect, buf: &mut Buffer) {
-        let header = Process::format_header(area.width.into());
-        let header_len = header.len() as u16;
-        Widget::render(
-            List::new(header),
-            Rect {
-                x: area.x,
-                y: area.y,
-                width: area.width,
-                height: header_len,
-            },
-            buf,
-        );
+    fn render(&mut self, area: Rect, buffer: &mut Buffer) {
+        let header_height = Process::render_header(area, self.sort_column, buffer);
         let list_rect = Rect {
             x: area.x,
-            y: area.y + header_len,
+            y: area.y + header_height,
             width: area.width,
-            height: area.height - header_len - 1,
+            height: area.height - header_height - 1,
         };
         normalize_list_state(&mut self.list_state, &self.processes, &list_rect);
         let tree_lines = self.processes.iter().map(|x| {
@@ -144,7 +145,7 @@ impl tui_app::TuiApp for PorcApp {
         StatefulWidget::render(
             List::new(tree_lines).highlight_style(Style::new().add_modifier(Modifier::REVERSED)),
             list_rect,
-            buf,
+            buffer,
             &mut self.list_state,
         );
         {
@@ -201,25 +202,20 @@ impl tui_app::TuiApp for PorcApp {
                     width: area.width,
                     height: 1,
                 },
-                buf,
+                buffer,
             );
         }
     }
 
     fn tick(&mut self) {
-        self.system.refresh_processes_specifics(
-            ProcessRefreshKind::new()
-                .with_memory()
-                .with_cpu()
-                .with_cmd(UpdateKind::OnlyIfNotSet),
-        );
-        let processes = &self.system.processes();
+        self.process_watcher.refresh();
+        let mut tree = self.process_watcher.get_forest();
+        tree.sort_by(&|a, b| Process::compare(a, b, self.sort_column));
         if let UiMode::ProcessSelected(selected) = self.ui_mode {
-            if !processes.keys().any(|pid| pid == &selected) {
+            if !tree.iter().any(|node| node.id() == selected) {
                 self.ui_mode = UiMode::Normal;
             }
         }
-        let tree = Process::new_from_sysinfo(processes.values());
         self.processes = tree.format_processes(|p| p.name.contains(&self.pattern));
     }
 }
@@ -238,7 +234,11 @@ fn normalize_list_state<T>(list_state: &mut ListState, list: &Vec<T>, rect: &Rec
 
 #[cfg(test)]
 mod test {
-    use crate::porc_app::normalize_list_state;
+    use super::*;
+    use crate::tui_app::TuiApp;
+    use crossterm::event::{KeyEventKind, KeyEventState};
+    use insta::assert_snapshot;
+    use ratatui::buffer::Cell;
     use ratatui::layout::Rect;
     use ratatui::widgets::ListState;
 
@@ -276,5 +276,72 @@ mod test {
         let mut list_state = ListState::default().with_selected(Some(0)).with_offset(25);
         normalize_list_state(&mut list_state, &vec![(); 30], &RECT);
         assert_eq!(list_state.offset(), 10);
+    }
+
+    fn test_app(processes: Vec<Process>) -> PorcApp {
+        let mut app = PorcApp::new(ProcessWatcher::fake(processes), None);
+        app.tick();
+        app
+    }
+
+    fn render_ui(mut app: PorcApp) -> String {
+        let area = Rect::new(0, 0, 80, 10);
+        let mut buffer = Buffer::filled(area, Cell::new(" "));
+        app.render(area, &mut buffer);
+        let mut result = String::new();
+        for y in 0..area.height {
+            for x in 0..area.width {
+                let symbol = buffer[(x, y)].symbol();
+                let symbol = if buffer[(x, y)].modifier.contains(Modifier::REVERSED) {
+                    crate::utils::test::underline(symbol)
+                } else {
+                    symbol.to_string()
+                };
+                result.push_str(&symbol);
+            }
+            result.push('\n')
+        }
+        result
+    }
+
+    #[test]
+    fn shows_a_tree_with_header_and_side_columns() {
+        let app = test_app(vec![
+            Process::fake(1, 4.0, None),
+            Process::fake(2, 3.0, Some(1)),
+            Process::fake(3, 2.0, Some(2)),
+            Process::fake(4, 1.0, None),
+            Process::fake(5, 0.0, Some(4)),
+        ]);
+        assert_snapshot!(render_ui(app));
+    }
+
+    #[test]
+    fn processes_get_sorted_by_pid() {
+        let app = test_app(vec![
+            Process::fake(1, 1.0, None),
+            Process::fake(2, 2.0, None),
+            Process::fake(3, 4.0, None),
+            Process::fake(4, 3.0, None),
+        ]);
+        assert_snapshot!(render_ui(app));
+    }
+
+    #[test]
+    fn processes_can_be_sorted_by_cpu() -> R<()> {
+        let mut app = test_app(vec![
+            Process::fake(1, 1.0, None),
+            Process::fake(2, 2.0, None),
+            Process::fake(3, 4.0, None),
+            Process::fake(4, 3.0, None),
+        ]);
+        app.update(KeyEvent {
+            code: KeyCode::Tab,
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        })?;
+        assert_snapshot!(render_ui(app));
+        Ok(())
     }
 }
